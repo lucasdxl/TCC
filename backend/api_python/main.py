@@ -1,3 +1,5 @@
+import os
+from dotenv import load_dotenv
 from contextlib import closing
 from datetime import datetime
 from typing import Any
@@ -6,14 +8,16 @@ from flask import Flask, jsonify, request
 import mysql.connector
 
 app = Flask(__name__)
+load_dotenv()
 
 
 def get_connection():
     return mysql.connector.connect(
-        host="localhost",
-        user="root",
-        password="",
-        database="monitoramento_agua"
+        host = os.getenv("DB_HOST"),
+        user = os.getenv("DB_USER"),
+        password = os.getenv("DB_PASSWORD"),
+        database = os.getenv("DB_NAME"),
+        port = os.getenv("DB_PORT", 3306)
     )
 
 
