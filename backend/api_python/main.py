@@ -68,6 +68,32 @@ def home():
         }
     ), 200
 
+@app.route("/status", methods=["GET"])
+def status():
+    try:
+        with closing(get_connection()) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT 1")
+            cursor.fetchone()
+            cursor.close()
+
+        return jsonify(
+            {
+                "status": "ok",
+                "api": "online",
+                "database": "conectado"
+            }
+        ), 200
+
+    except Exception as erro:
+        return jsonify(
+            {
+                "status": "erro",
+                "api": "online",
+                "database": "desconectado",
+                "detalhe": str(erro)
+            }
+        ), 500
 
 @app.route("/leituras", methods=["POST"])
 def receber_leitura():
