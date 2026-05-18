@@ -17,7 +17,7 @@ def get_connection():
         user = os.getenv("DB_USER"),
         password = os.getenv("DB_PASSWORD"),
         database = os.getenv("DB_NAME"),
-        port = os.getenv("DB_PORT", 3306)
+        port = int(os.getenv("DB_PORT", 3306))
     )
 
 
@@ -193,5 +193,5 @@ def listar_leituras():
 
 
 if __name__ == "__main__":
-    init_db()
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    #init_db()
+    app.run(debug=True)
