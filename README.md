@@ -8,7 +8,7 @@ Projeto de TCC voltado ao monitoramento de parâmetros da água utilizando ESP32
 - Python
 - Flask/FastAPI
 - MySQL
-- Power BI
+- SCADA
 
 ## Estrutura do projeto
 - `firmware/esp32`: código do microcontrolador
@@ -25,11 +25,10 @@ Sensores -> ESP32 -> API Python -> MySQL -> Dashboard
 - Turbidez
 - Temperatura
 - ORP ou oxigênio dissolvido
-- Alcalinidade por titulação assistida
 
 ## Autores
 - João Henrique Tomaz Dutra
 - Lucas Balint Vilar
 
 # Professor Orientador
-- Marcelo do Carmo Gaiotto
+- Marcelo do Carmo Camargo Gaiotto
