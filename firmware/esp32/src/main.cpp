@@ -1,18 +1,19 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <WiFiClientSecure.h>
 #include <ArduinoJson.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include <time.h>
 
 // Pins mapping
-#define ONEWIRE_PIN 4
+#define ONEWIRE_PIN 14
 #define PH_PIN 34
 #define TURB_PIN 35
 #define ORP_PIN 32
 
-// Endpoint (HTTP simples, não HTTPS)
-const char* serverUrl = "http://api-monitoramento-agua.onrender.com/leituras";
+// Endpoint (HTTPS com WiFiClientSecure)
+const char* serverUrl = "https://api-monitoramento-agua.onrender.com/leituras";
 
 // WiFi
 const char* ssid = "Wokwi-GUEST";
@@ -64,6 +65,13 @@ float mapAnalogToRange(int pin, float minVal, float maxVal) {
 }
 
 void sendReading() {
+  // Verificar se a hora foi sincronizada
+  time_t nowSec = time(nullptr);
+  if (nowSec < 1000000000) {
+    Serial.println("[SENSOR] ERRO: Hora nao sincronizada. Pulando envio.");
+    return;
+  }
+
   // Leitura dos sensores
   sensors.requestTemperatures();
   float temperature = sensors.getTempCByIndex(0);
@@ -77,7 +85,7 @@ void sendReading() {
   float orp = mapAnalogToRange(ORP_PIN, 200.0, 300.0);
   String timestamp = getTimestamp();
 
-  // Criar JSON
+  // Criar JSON no formato exato
   StaticJsonDocument<256> doc;
   doc["ph"] = ph;
   doc["turbidez"] = turbidez;
@@ -90,35 +98,22 @@ void sendReading() {
 
   // ===== DEBUG: Imprimir dados =====
   Serial.println("\n[HTTP] ========== ENVIANDO LEITURA ==========");
-  Serial.print("[DADOS] pH=");
-  Serial.print(ph, 2);
-  Serial.print(" | turbidez=");
-  Serial.print(turbidez, 2);
-  Serial.print(" | ORP=");
-  Serial.print(orp, 2);
-  Serial.print(" | temperatura=");
-  Serial.print(temperature, 2);
-  Serial.print(" | data_hora=");
-  Serial.println(timestamp);
-
   Serial.print("[URL] ");
   Serial.println(serverUrl);
-
+  
   Serial.print("[JSON] ");
   Serial.println(payload);
 
-  // ===== Envio HTTP (sem SSL) =====
-  WiFiClient client;  // WiFiClient simples, SEM WiFiClientSecure
+  // ===== Envio HTTPS com SSL =====
+  WiFiClientSecure client;
+  client.setInsecure();  // Desabilitar verificacao de certificado para Wokwi
   
   HTTPClient http;
   
-  Serial.println("[HTTP] Iniciando conexao...");
+  Serial.println("[HTTP] Iniciando conexao HTTPS...");
   
   if (http.begin(client, serverUrl)) {
-    Serial.println("[HTTP] Conexao iniciada!");
-    
-    // Habilitar redirecionamento
-    http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+    Serial.println("[HTTP] Conexao HTTPS iniciada!");
     
     // Header
     http.addHeader("Content-Type", "application/json");
@@ -127,12 +122,12 @@ void sendReading() {
     Serial.println("[HTTP] Enviando POST...");
     int httpCode = http.POST(payload);
     
-    Serial.print("[HTTP] Codigo: ");
+    Serial.print("[HTTP] Codigo HTTP: ");
     Serial.println(httpCode);
     
     // Imprimir mensagem de erro se houver
     if (httpCode < 0) {
-      Serial.print("[HTTP] ERRO: ");
+      Serial.print("[HTTP] ERRO DE CONEXAO: ");
       Serial.println(http.errorToString(httpCode));
     }
     
@@ -141,16 +136,17 @@ void sendReading() {
     Serial.print("[RESPOSTA] ");
     Serial.println(response);
     
+    // Considerar sucesso apenas 200 ou 201 (nao 307)
     if (httpCode == 201 || httpCode == 200) {
-      Serial.println("[HTTP] SUCESSO! Leitura enviada.");
+      Serial.println("[HTTP] ✓ SUCESSO! Leitura registrada.");
     } else {
-      Serial.print("[HTTP] FALHA! Codigo esperado 201, recebido: ");
+      Serial.print("[HTTP] ✗ FALHA! Esperado 200/201, recebido: ");
       Serial.println(httpCode);
     }
     
     http.end();
   } else {
-    Serial.println("[HTTP] ERRO ao iniciar conexao!");
+    Serial.println("[HTTP] ✗ ERRO ao iniciar conexao HTTPS!");
   }
   
   Serial.println("[HTTP] ========== FIM DO ENVIO ==========\n");
