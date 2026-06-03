@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "author": "TCC Project",
+  "editor": "wokwi",
+  "parts": [
+    { "id": "esp32", "type": "board-esp32-devkit-c-v4", "left": 120, "top": 120, "attrs": {} },
+    { "id": "ds18b20", "type": "wokwi-ds18b20", "left": 420, "top": 80, "attrs": {} },
+    { "id": "pot_ph", "type": "wokwi-potentiometer", "left": 420, "top": 220, "attrs": {} },
+    { "id": "pot_turb", "type": "wokwi-potentiometer", "left": 420, "top": 300, "attrs": {} },
+    { "id": "pot_orp", "type": "wokwi-potentiometer", "left": 420, "top": 380, "attrs": {} }
+  ],
+  "connections": [
+    ["ds18b20:GND", "esp32:GND", "", []],
+    ["ds18b20:VCC", "esp32:3V3", "", []],
+    ["ds18b20:DQ", "esp32:GPIO4", "", []],
+
+    ["pot_ph:1", "esp32:3V3", "", []],
+    ["pot_ph:2", "esp32:GPIO34", "", []],
+    ["pot_ph:3", "esp32:GND", "", []],
+
+    ["pot_turb:1", "esp32:3V3", "", []],
+    ["pot_turb:2", "esp32:GPIO35", "", []],
+    ["pot_turb:3", "esp32:GND", "", []],
+
+    ["pot_orp:1", "esp32:3V3", "", []],
+    ["pot_orp:2", "esp32:GPIO32", "", []],
+    ["pot_orp:3", "esp32:GND", "", []]
+  ]
+}
