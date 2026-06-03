@@ -3,7 +3,7 @@ import time
 from datetime import datetime
 import requests
 
-API_URL = 'http://127.0.0.1:5000/leituras'
+API_URL = 'https://api-monitoramento-agua.onrender.com/leituras'
 intervalo_tempo_segundos = 5
 
 def gerar_leitura() -> dict:
