@@ -24,7 +24,7 @@ OneWire oneWire(ONEWIRE_PIN);
 DallasTemperature sensors(&oneWire);
 
 unsigned long lastSend = 0;
-const unsigned long SEND_INTERVAL = 5000;
+const unsigned long SEND_INTERVAL = 30000;
 
 void connectWiFi() {
   if (WiFi.status() == WL_CONNECTED) return;
@@ -62,6 +62,64 @@ float mapAnalogToRange(int pin, float minVal, float maxVal) {
   int raw = analogRead(pin);
   float normalized = (float)raw / 4095.0;
   return minVal + normalized * (maxVal - minVal);
+}
+
+int enviarPostComRetry(const String& payload) {
+  const int maxAttempts = 3;
+  for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+    Serial.print("[HTTP] Tentativa ");
+    Serial.print(attempt);
+    Serial.print("/" );
+    Serial.println(maxAttempts);
+
+    WiFiClientSecure client;
+    client.setInsecure();
+    HTTPClient http;
+
+    Serial.println("[HTTP] Iniciando conexao HTTPS...");
+    if (!http.begin(client, serverUrl)) {
+      Serial.println("[HTTP] ✗ ERRO ao iniciar conexao HTTPS!");
+      http.end();
+      client.stop();
+    } else {
+      http.addHeader("Content-Type", "application/json");
+
+      Serial.println("[HTTP] Enviando POST...");
+      int httpCode = http.POST(payload);
+      Serial.print("[HTTP] Codigo HTTP: ");
+      Serial.println(httpCode);
+
+      String response = http.getString();
+      Serial.print("[RESPOSTA] ");
+      Serial.println(response);
+
+      if (httpCode == 200 || httpCode == 201) {
+        Serial.println("[HTTP] ✓ SUCESSO! Leitura registrada.");
+        http.end();
+        client.stop();
+        return httpCode;
+      }
+
+      if (httpCode < 0) {
+        Serial.print("[HTTP] ERRO DE CONEXAO: ");
+        Serial.println(http.errorToString(httpCode));
+      } else {
+        Serial.print("[HTTP] ✗ FALHA! Esperado 200/201, recebido: ");
+        Serial.println(httpCode);
+      }
+
+      http.end();
+      client.stop();
+    }
+
+    if (attempt < maxAttempts) {
+      Serial.println("[HTTP] Aguardando 2000 ms antes da proxima tentativa...");
+      delay(2000);
+    }
+  }
+
+  Serial.println("[HTTP] Todas as tentativas falharam. Leitura descartada nesta versao.");
+  return -1;
 }
 
 void sendReading() {
@@ -104,52 +162,22 @@ void sendReading() {
   Serial.print("[JSON] ");
   Serial.println(payload);
 
-  // ===== Envio HTTPS com SSL =====
-  WiFiClientSecure client;
-  client.setInsecure();  // Desabilitar verificacao de certificado para Wokwi
-  
-  HTTPClient http;
-  
-  Serial.println("[HTTP] Iniciando conexao HTTPS...");
-  
-  if (http.begin(client, serverUrl)) {
-    Serial.println("[HTTP] Conexao HTTPS iniciada!");
-    
-    // Header
-    http.addHeader("Content-Type", "application/json");
-    
-    // POST
-    Serial.println("[HTTP] Enviando POST...");
-    int httpCode = http.POST(payload);
-    
-    Serial.print("[HTTP] Codigo HTTP: ");
-    Serial.println(httpCode);
-    
-    // Imprimir mensagem de erro se houver
-    if (httpCode < 0) {
-      Serial.print("[HTTP] ERRO DE CONEXAO: ");
-      Serial.println(http.errorToString(httpCode));
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("[HTTP] Wi-Fi desconectado antes do envio. Tentando reconectar...");
+    connectWiFi();
+    if (WiFi.status() != WL_CONNECTED) {
+      Serial.println("[HTTP] Nao foi possivel reconectar. Pulando envio.");
+      Serial.println("[HTTP] ========== FIM DO ENVIO ==========");
+      return;
     }
-    
-    // Imprimir resposta completa
-    String response = http.getString();
-    Serial.print("[RESPOSTA] ");
-    Serial.println(response);
-    
-    // Considerar sucesso apenas 200 ou 201 (nao 307)
-    if (httpCode == 201 || httpCode == 200) {
-      Serial.println("[HTTP] ✓ SUCESSO! Leitura registrada.");
-    } else {
-      Serial.print("[HTTP] ✗ FALHA! Esperado 200/201, recebido: ");
-      Serial.println(httpCode);
-    }
-    
-    http.end();
-  } else {
-    Serial.println("[HTTP] ✗ ERRO ao iniciar conexao HTTPS!");
   }
-  
-  Serial.println("[HTTP] ========== FIM DO ENVIO ==========\n");
+
+  int result = enviarPostComRetry(payload);
+  if (result < 0) {
+    Serial.println("[HTTP] ERRO: falha ao enviar mesmo apos tentativas.");
+  }
+
+  Serial.println("[HTTP] ========== FIM DO ENVIO ==========");
 }
 
 void setup() {
