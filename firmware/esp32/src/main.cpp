@@ -125,10 +125,7 @@ int enviarPostComRetry(const String& payload) {
 void sendReading() {
   // Verificar se a hora foi sincronizada
   time_t nowSec = time(nullptr);
-  if (nowSec < 1000000000) {
-    Serial.println("[SENSOR] ERRO: Hora nao sincronizada. Pulando envio.");
-    return;
-  }
+  bool ntpSyncronizado = (nowSec >= 1000000000);
 
   // Leitura dos sensores
   sensors.requestTemperatures();
@@ -141,15 +138,20 @@ void sendReading() {
   float ph = mapAnalogToRange(PH_PIN, 6.5, 8.5);
   float turbidez = mapAnalogToRange(TURB_PIN, 1.0, 50.0);
   float orp = mapAnalogToRange(ORP_PIN, 200.0, 300.0);
-  String timestamp = getTimestamp();
 
-  // Criar JSON no formato exato
+  // Criar JSON com ou sem data_hora dependendo da sincronizacao NTP
   StaticJsonDocument<256> doc;
   doc["ph"] = ph;
   doc["turbidez"] = turbidez;
   doc["temperatura"] = temperature;
   doc["orp"] = orp;
-  doc["data_hora"] = timestamp;
+
+  if (ntpSyncronizado) {
+    String timestamp = getTimestamp();
+    doc["data_hora"] = timestamp;
+  } else {
+    Serial.println("[NTP] Hora nao sincronizada. Enviando sem data_hora; API usara horario do servidor.");
+  }
 
   String payload;
   serializeJson(doc, payload);
