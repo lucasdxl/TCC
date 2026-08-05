@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>SCADA - Monitoramento da Água</title>
+
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topo">
+    <div>
+      <h1>SCADA - Sistema de Monitoramento</h1>
+      <p>Monitoramento em tempo real dos sensores da água</p>
+    </div>
+
+    <div id="statusConexao" class="status offline">
+      Offline
+    </div>
+  </header>
+
+  <main class="container">
+    <section id="alertaSistema" class="alerta oculto">
+      Nenhum alerta no momento.
+    </section>
+
+    <section class="cards">
+      <div class="card">
+        <h2>pH</h2>
+        <p id="valorPh" class="valor">--</p>
+        <span>Escala de acidez/basicidade</span>
+      </div>
+
+      <div class="card">
+        <h2>Temperatura</h2>
+        <p id="valorTemperatura" class="valor">-- °C</p>
+        <span>Temperatura da água</span>
+      </div>
+
+      <div class="card">
+        <h2>ORP</h2>
+        <p id="valorOrp" class="valor">-- mV</p>
+        <span>Potencial de oxidação-redução</span>
+      </div>
+
+      <div class="card">
+        <h2>Turbidez</h2>
+        <p id="valorTurbidez" class="valor">-- NTU</p>
+        <span>Nível de partículas na água</span>
+      </div>
+    </section>
+
+    <section class="painel">
+      <h2>Última leitura</h2>
+
+      <div class="info-leitura">
+        <p><strong>Data/Hora:</strong> <span id="dataLeitura">--</span></p>
+        <p><strong>Status:</strong> <span id="statusLeitura">Aguardando dados...</span></p>
+      </div>
+
+      <p id="mensagemErro" class="erro"></p>
+    </section>
+
+    <section class="painel">
+      <h2>Histórico recente</h2>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Horário</th>
+            <th>pH</th>
+            <th>Temp.</th>
+            <th>ORP</th>
+            <th>Turbidez</th>
+          </tr>
+        </thead>
+
+        <tbody id="tabelaHistorico">
+        </tbody>
+      </table>
+    </section>
+  </main>
+
+  <script src="script.js"></script>
+</body>
+</html>
