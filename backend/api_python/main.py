@@ -5,9 +5,11 @@ from typing import Any
 
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request
+from flask_cors import CORS
 import mysql.connector
 
 app = Flask(__name__)
+CORS(app)
 load_dotenv()
 
 DB_CONNECT_TIMEOUT = int(os.getenv("DB_CONNECT_TIMEOUT", 10))
