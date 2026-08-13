@@ -38,14 +38,14 @@ constexpr unsigned long INTERVALO_ENTRE_CICLOS =
 // pH, turbidez e ORP:
 // 10 amostras, uma por segundo
 constexpr uint8_t NUM_AMOSTRAS_ANALOGICAS = 10;
-constexpr unsigned long INTERVALO_AMOSTRAS_ANALOGICAS = 1000UL;
+constexpr unsigned long INTERVALO_AMOSTRAS_ANALOGICAS = 500UL;
 
 // Temperatura:
 // 3 amostras por ciclo
 constexpr uint8_t NUM_AMOSTRAS_TEMPERATURA = 3;
 
 // Pequeno intervalo extra entre medições
-constexpr unsigned long INTERVALO_EXTRA_TEMPERATURA = 100UL;
+constexpr unsigned long INTERVALO_EXTRA_TEMPERATURA = 50UL;
 
 // =====================================================
 // API
@@ -68,7 +68,7 @@ constexpr unsigned long WIFI_TIMEOUT_MS = 10000UL;
 // =====================================================
 
 constexpr uint8_t MAX_HTTP_ATTEMPTS = 3;
-constexpr unsigned long HTTP_RETRY_DELAY_MS = 2000UL;
+constexpr unsigned long HTTP_RETRY_DELAY_MS = 5000UL;
 constexpr unsigned long HTTP_TIMEOUT_MS = 15000UL;
 
 // =====================================================
