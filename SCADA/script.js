@@ -1,170 +1,502 @@
-// Altere esta URL para o endpoint real da sua API
 const API_URL = "https://api-monitoramento-agua.onrender.com/leituras";
 
-// Intervalo de atualização em milissegundos
-const INTERVALO_ATUALIZACAO = 2000;
+const INTERVALO_ATUALIZACAO = 10000;
 
-// Guarda as últimas leituras para mostrar na tabela
 let historico = [];
 
-// Função principal: busca os dados da API
+
+/*
+====================================================
+BUSCA OS DADOS DA API
+====================================================
+*/
+
 async function buscarDadosDaApi() {
-  try {
-    alterarStatusConexao("Conectando...", "conectando");
-    limparErro();
 
-    const resposta = await fetch(API_URL, {
-      method: "GET",
-      cache: "no-store"
-    });
+    try {
 
-    if (!resposta.ok) {
-      throw new Error(`Erro HTTP: ${resposta.status}`);
+        alterarStatusConexao("Conectando...", "conectando");
+
+        limparErro();
+
+
+        const resposta = await fetch(API_URL, {
+            method: "GET",
+            headers: {
+                "Accept": "application/json"
+            },
+            cache: "no-store"
+        });
+
+
+        if (!resposta.ok) {
+
+            throw new Error(
+                `Erro HTTP: ${resposta.status}`
+            );
+
+        }
+
+
+        const dados = await resposta.json();
+
+
+        // Mostra a resposta completa no console
+        console.log("Resposta completa da API:", dados);
+
+
+        if (dados.status === "erro") {
+
+            throw new Error(
+                dados.message || "A API retornou um erro."
+            );
+
+        }
+
+
+        if (!dados.leituras || dados.leituras.length === 0) {
+
+            throw new Error(
+                "A API não retornou nenhuma leitura."
+            );
+
+        }
+
+
+        /*
+        A API retorna:
+
+        {
+            "leituras": [
+                {...},
+                {...},
+                {...}
+            ]
+        }
+
+        Como a API usa:
+
+        ORDER BY id DESC
+
+        a posição [0] é a leitura mais recente.
+        */
+
+        const leituraAPI = dados.leituras[0];
+
+
+        console.log(
+            "Leitura mais recente:",
+            leituraAPI
+        );
+
+
+        /*
+        Converte os valores recebidos para Number.
+        */
+
+        const leitura = {
+
+            id: leituraAPI.id,
+
+            ph: Number(leituraAPI.ph),
+
+            temperatura: Number(
+                leituraAPI.temperatura
+            ),
+
+            orp: Number(
+                leituraAPI.orp
+            ),
+
+            turbidez: Number(
+                leituraAPI.turbidez
+            ),
+
+            created_at: leituraAPI.data_hora
+
+        };
+
+
+        console.log(
+            "Leitura processada:",
+            leitura
+        );
+
+
+        /*
+        Atualiza a interface
+        */
+
+        atualizarCards(leitura);
+
+        verificarAlarmes(leitura);
+
+        adicionarNoHistorico(leitura);
+
+
+        alterarStatusConexao(
+            "Online",
+            "online"
+        );
+
+
+        document.getElementById(
+            "statusLeitura"
+        ).textContent =
+            "Dados atualizados com sucesso.";
+
+
+    } catch (erro) {
+
+        console.error(
+            "Erro ao acessar API:",
+            erro
+        );
+
+
+        alterarStatusConexao(
+            "Offline",
+            "offline"
+        );
+
+
+        document.getElementById(
+            "statusLeitura"
+        ).textContent =
+            "Falha ao atualizar dados.";
+
+
+        document.getElementById(
+            "mensagemErro"
+        ).textContent =
+            `Erro: ${erro.message}`;
+
     }
 
-    const dadosRecebidos = await resposta.json();
-
-    const dados = normalizarDados(dadosRecebidos);
-
-    atualizarCards(dados);
-    verificarAlarmes(dados);
-    adicionarNoHistorico(dados);
-
-    alterarStatusConexao("Online", "online");
-    document.getElementById("statusLeitura").textContent = "Dados atualizados com sucesso.";
-  } catch (erro) {
-    alterarStatusConexao("Offline", "offline");
-
-    document.getElementById("statusLeitura").textContent = "Falha ao atualizar dados.";
-    document.getElementById("mensagemErro").textContent =
-      `Erro ao buscar dados da API: ${erro.message}`;
-  }
 }
 
-// Normaliza os dados para evitar erro caso a API retorne nomes diferentes
-function normalizarDados(dadosRecebidos) {
-  let dados = dadosRecebidos;
 
-  // Se a API retornar uma lista, pega o último registro
-  if (Array.isArray(dadosRecebidos)) {
-    dados = dadosRecebidos[dadosRecebidos.length - 1];
-  }
+/*
+====================================================
+ATUALIZA OS CARDS
+====================================================
+*/
 
-  return {
-    ph: Number(dados.ph ?? 0),
-    temperatura: Number(dados.temperatura ?? 0),
-    orp: Number(dados.orp ?? 0),
-    turbidez: Number(dados.turbidez ?? 0),
-    created_at: dados.data_hora ?? new Date().toISOString()
-  };
-}
-
-// Atualiza os cards principais da tela
 function atualizarCards(dados) {
-  document.getElementById("valorPh").textContent = dados.ph.toFixed(2);
-  document.getElementById("valorTemperatura").textContent = `${dados.temperatura.toFixed(1)} °C`;
-  document.getElementById("valorOrp").textContent = `${dados.orp.toFixed(0)} mV`;
-  document.getElementById("valorTurbidez").textContent = `${dados.turbidez.toFixed(1)} NTU`;
 
-  document.getElementById("dataLeitura").textContent = formatarData(dados.created_at);
+    console.log(
+        "Atualizando cards com:",
+        dados
+    );
+
+
+    document.getElementById(
+        "valorPh"
+    ).textContent =
+        dados.ph.toFixed(2);
+
+
+    document.getElementById(
+        "valorTemperatura"
+    ).textContent =
+        `${dados.temperatura.toFixed(1)} °C`;
+
+
+    document.getElementById(
+        "valorOrp"
+    ).textContent =
+        `${dados.orp.toFixed(0)} mV`;
+
+
+    document.getElementById(
+        "valorTurbidez"
+    ).textContent =
+        `${dados.turbidez.toFixed(1)} NTU`;
+
+
+    document.getElementById(
+        "dataLeitura"
+    ).textContent =
+        formatarData(dados.created_at);
+
 }
 
-// Verifica condições de alerta
+
+/*
+====================================================
+VERIFICA ALARMES
+====================================================
+*/
+
 function verificarAlarmes(dados) {
-  const alerta = document.getElementById("alertaSistema");
-  let mensagens = [];
 
-  // Ajuste esses limites conforme os requisitos do projeto
-  if (dados.ph < 6.5) {
-    mensagens.push("pH abaixo do ideal. Água muito ácida.");
-  }
+    const alerta =
+        document.getElementById(
+            "alertaSistema"
+        );
 
-  if (dados.ph > 8.5) {
-    mensagens.push("pH acima do ideal. Água muito básica.");
-  }
 
-  if (dados.temperatura < 20 || dados.temperatura > 30) {
-    mensagens.push("Temperatura fora da faixa recomendada.");
-  }
+    let mensagens = [];
 
-  if (dados.orp < 250) {
-    mensagens.push("ORP baixo. Possível baixa capacidade de oxidação.");
-  }
 
-  if (dados.turbidez > 50) {
-    mensagens.push("Turbidez elevada. Água com excesso de partículas.");
-  }
+    /*
+    Faixa de pH definida provisoriamente.
+    Ajustaremos depois de acordo com
+    os requisitos do projeto.
+    */
 
-  if (mensagens.length > 0) {
-    alerta.classList.remove("oculto");
-    alerta.textContent = mensagens.join(" ");
-  } else {
-    alerta.classList.add("oculto");
-    alerta.textContent = "Nenhum alerta no momento.";
-  }
+    if (dados.ph < 6.5) {
+
+        mensagens.push(
+            "pH abaixo do ideal. Água muito ácida."
+        );
+
+    }
+
+
+    if (dados.ph > 8.5) {
+
+        mensagens.push(
+            "pH acima do ideal. Água muito básica."
+        );
+
+    }
+
+
+    if (
+        dados.temperatura < 20 ||
+        dados.temperatura > 30
+    ) {
+
+        mensagens.push(
+            "Temperatura fora da faixa recomendada."
+        );
+
+    }
+
+
+    if (dados.orp < 250) {
+
+        mensagens.push(
+            "ORP baixo. Possível baixa capacidade de oxidação."
+        );
+
+    }
+
+
+    if (dados.turbidez > 50) {
+
+        mensagens.push(
+            "Turbidez elevada. Água com excesso de partículas."
+        );
+
+    }
+
+
+    /*
+    Mostra os alarmes
+    */
+
+    if (mensagens.length > 0) {
+
+        alerta.classList.remove(
+            "oculto"
+        );
+
+
+        alerta.textContent =
+            mensagens.join(" ");
+
+    } else {
+
+        alerta.classList.add(
+            "oculto"
+        );
+
+    }
+
 }
 
-// Adiciona leitura ao histórico
+
+/*
+====================================================
+HISTÓRICO
+====================================================
+*/
+
 function adicionarNoHistorico(dados) {
-  historico.unshift(dados);
 
-  // Mantém apenas as últimas 10 leituras
-  if (historico.length > 10) {
-    historico.pop();
-  }
+    historico.unshift(dados);
 
-  atualizarTabelaHistorico();
+
+    /*
+    Mantém somente as últimas
+    10 leituras.
+    */
+
+    if (historico.length > 10) {
+
+        historico.pop();
+
+    }
+
+
+    atualizarTabelaHistorico();
+
 }
 
-// Atualiza a tabela de histórico
+
+/*
+====================================================
+ATUALIZA TABELA
+====================================================
+*/
+
 function atualizarTabelaHistorico() {
-  const tabela = document.getElementById("tabelaHistorico");
 
-  tabela.innerHTML = "";
+    const tabela =
+        document.getElementById(
+            "tabelaHistorico"
+        );
 
-  historico.forEach((item) => {
-    const linha = document.createElement("tr");
 
-    linha.innerHTML = `
-      <td>${formatarData(item.created_at)}</td>
-      <td>${item.ph.toFixed(2)}</td>
-      <td>${item.temperatura.toFixed(1)} °C</td>
-      <td>${item.orp.toFixed(0)} mV</td>
-      <td>${item.turbidez.toFixed(1)} NTU</td>
-    `;
+    tabela.innerHTML = "";
 
-    tabela.appendChild(linha);
-  });
+
+    historico.forEach(
+        (item) => {
+
+            const linha =
+                document.createElement(
+                    "tr"
+                );
+
+
+            linha.innerHTML = `
+
+                <td>
+                    ${formatarData(item.created_at)}
+                </td>
+
+                <td>
+                    ${item.ph.toFixed(2)}
+                </td>
+
+                <td>
+                    ${item.temperatura.toFixed(1)} °C
+                </td>
+
+                <td>
+                    ${item.orp.toFixed(0)} mV
+                </td>
+
+                <td>
+                    ${item.turbidez.toFixed(1)} NTU
+                </td>
+
+            `;
+
+
+            tabela.appendChild(linha);
+
+        }
+    );
+
 }
 
-// Atualiza o status de conexão na tela
-function alterarStatusConexao(texto, classe) {
-  const status = document.getElementById("statusConexao");
 
-  status.textContent = texto;
+/*
+====================================================
+STATUS DA CONEXÃO
+====================================================
+*/
 
-  status.classList.remove("online", "offline", "conectando");
-  status.classList.add(classe);
+function alterarStatusConexao(
+    texto,
+    classe
+) {
+
+    const status =
+        document.getElementById(
+            "statusConexao"
+        );
+
+
+    status.textContent = texto;
+
+
+    status.classList.remove(
+        "online",
+        "offline",
+        "conectando"
+    );
+
+
+    status.classList.add(
+        classe
+    );
+
 }
 
-// Limpa mensagem de erro
+
+/*
+====================================================
+LIMPA ERRO
+====================================================
+*/
+
 function limparErro() {
-  document.getElementById("mensagemErro").textContent = "";
+
+    document.getElementById(
+        "mensagemErro"
+    ).textContent = "";
+
 }
 
-// Formata data para padrão brasileiro
+
+/*
+====================================================
+FORMATA DATA
+====================================================
+*/
+
 function formatarData(data) {
-  const dataObj = new Date(data);
 
-  if (isNaN(dataObj.getTime())) {
-    return "--";
-  }
+    const dataObj =
+        new Date(data);
 
-  return dataObj.toLocaleString("pt-BR");
+
+    if (
+        isNaN(
+            dataObj.getTime()
+        )
+    ) {
+
+        return "--";
+
+    }
+
+
+    return dataObj.toLocaleString(
+        "pt-BR"
+    );
+
 }
 
-// Busca uma vez assim que a página abre
+
+/*
+====================================================
+INICIALIZAÇÃO
+====================================================
+*/
+
+
+// Faz uma requisição imediatamente
 buscarDadosDaApi();
 
-// Depois continua buscando em tempo real
-setInterval(buscarDadosDaApi, INTERVALO_ATUALIZACAO);
+
+// Depois atualiza a cada 2 segundos
+setInterval(
+    buscarDadosDaApi,
+    INTERVALO_ATUALIZACAO
+);
