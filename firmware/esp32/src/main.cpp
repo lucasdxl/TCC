@@ -5,672 +5,323 @@
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include <time.h>
-#include <math.h>
-#include <float.h>
 
-// =====================================================
-// PINOS
-// =====================================================
+// Pins mapping
+#define ONEWIRE_PIN 14
+#define PH_PIN 34
+#define TURB_PIN 35
+#define ORP_PIN 32
 
-constexpr uint8_t ONEWIRE_PIN = 14;
-constexpr uint8_t PH_PIN = 34;
-constexpr uint8_t TURB_PIN = 35;
-constexpr uint8_t ORP_PIN = 32;
+// Endpoint (HTTPS com WiFiClientSecure)
+const char* serverUrl = "https://api-monitoramento-agua.onrender.com/leituras";
 
-// =====================================================
-// CONFIGURAÇÃO DE OPERAÇÃO
-// =====================================================
+// WiFi
+const char* ssid = "Wokwi-GUEST";
+const char* password = "";
 
-// true  = banca / desenvolvimento
-// false = cenário real
-constexpr bool MODO_DEMONSTRACAO = true;
-
-// Intervalo APÓS o término de um ciclo completo
-constexpr unsigned long INTERVALO_ENTRE_CICLOS =
-    MODO_DEMONSTRACAO
-        ? 10000UL       // 10 segundos
-        : 300000UL;     // 5 minutos
-
-// =====================================================
-// AMOSTRAGEM
-// =====================================================
-
-// pH, turbidez e ORP:
-// 10 amostras, uma por segundo
-constexpr uint8_t NUM_AMOSTRAS_ANALOGICAS = 10;
-constexpr unsigned long INTERVALO_AMOSTRAS_ANALOGICAS = 500UL;
-
-// Temperatura:
-// 3 amostras por ciclo
-constexpr uint8_t NUM_AMOSTRAS_TEMPERATURA = 3;
-
-// Pequeno intervalo extra entre medições
-constexpr unsigned long INTERVALO_EXTRA_TEMPERATURA = 50UL;
-
-// =====================================================
-// API
-// =====================================================
-
-const char* SERVER_URL =
-    "https://api-monitoramento-agua.onrender.com/leituras";
-
-// =====================================================
-// WI-FI
-// =====================================================
-
-const char* WIFI_SSID = "Wokwi-GUEST";
-const char* WIFI_PASSWORD = "";
-
-constexpr unsigned long WIFI_TIMEOUT_MS = 10000UL;
-
-// =====================================================
-// HTTPS
-// =====================================================
-
-constexpr uint8_t MAX_HTTP_ATTEMPTS = 3;
-constexpr unsigned long HTTP_RETRY_DELAY_MS = 5000UL;
-constexpr unsigned long HTTP_TIMEOUT_MS = 15000UL;
-
-// =====================================================
-// SENSOR DE TEMPERATURA
-// =====================================================
-
+// OneWire and temperature sensor
 OneWire oneWire(ONEWIRE_PIN);
-DallasTemperature temperatureSensor(&oneWire);
+DallasTemperature sensors(&oneWire);
 
-// =====================================================
-// ESTATÍSTICAS
-// =====================================================
+unsigned long lastSend = 0;
+const unsigned long SEND_INTERVAL = 10000;
 
-struct Estatisticas {
-  float media = 0.0f;
-  float minimo = 0.0f;
-  float maximo = 0.0f;
-  float desvioPadrao = 0.0f;
-  uint16_t quantidade = 0;
-};
+const int NUM_AMOSTRAS = 10;
+const unsigned long TEMPO_ENTRE_AMOSTRAS = 500; // 500 ms entre amostras
 
-struct Acumulador {
-  float soma = 0.0f;
-  float somaQuadrados = 0.0f;
-  float minimo = FLT_MAX;
-  float maximo = -FLT_MAX;
-  uint16_t quantidade = 0;
-};
+void connectWiFi() {
+  if (WiFi.status() == WL_CONNECTED) return;
 
-// =====================================================
-// CONTROLE DO CICLO
-// =====================================================
-
-unsigned long ultimoCicloConcluido = 0;
-
-// =====================================================
-// FUNÇÕES ESTATÍSTICAS
-// =====================================================
-
-void adicionarAmostra(Acumulador& acumulador, float valor) {
-  acumulador.soma += valor;
-  acumulador.somaQuadrados += valor * valor;
-
-  acumulador.minimo = min(acumulador.minimo, valor);
-  acumulador.maximo = max(acumulador.maximo, valor);
-
-  acumulador.quantidade++;
-}
-
-Estatisticas calcularEstatisticas(const Acumulador& acumulador) {
-  Estatisticas resultado;
-
-  if (acumulador.quantidade == 0) {
-    return resultado;
-  }
-
-  const float n = static_cast<float>(acumulador.quantidade);
-
-  resultado.media = acumulador.soma / n;
-  resultado.minimo = acumulador.minimo;
-  resultado.maximo = acumulador.maximo;
-  resultado.quantidade = acumulador.quantidade;
-
-  float variancia =
-      (acumulador.somaQuadrados / n) -
-      (resultado.media * resultado.media);
-
-  if (variancia < 0.0f) {
-    variancia = 0.0f;
-  }
-
-  resultado.desvioPadrao = sqrtf(variancia);
-
-  return resultado;
-}
-
-// =====================================================
-// WI-FI
-// =====================================================
-
-bool conectarWiFi() {
-  if (WiFi.status() == WL_CONNECTED) {
-    return true;
-  }
-
-  Serial.println();
-  Serial.print("[WiFi] Conectando a ");
-  Serial.println(WIFI_SSID);
+  Serial.print("\n[WiFi] Conectando ao: ");
+  Serial.println(ssid);
 
   WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  WiFi.begin(ssid, password);
 
-  const unsigned long inicio = millis();
+  unsigned long start = millis();
 
-  while (
-      WiFi.status() != WL_CONNECTED &&
-      millis() - inicio < WIFI_TIMEOUT_MS
-  ) {
-    Serial.print(".");
+  while (WiFi.status() != WL_CONNECTED && millis() - start < 10000) {
+    Serial.print('.');
     delay(500);
   }
 
-  Serial.println();
-
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("[WiFi] Falha na conexao.");
-    return false;
-  }
-
-  Serial.println("[WiFi] Conectado.");
-  Serial.print("[WiFi] IP: ");
-  Serial.println(WiFi.localIP());
-
-  return true;
-}
-
-// =====================================================
-// NTP / DATA E HORA
-// =====================================================
-
-bool horarioSincronizado() {
-  return time(nullptr) >= 1000000000;
-}
-
-String obterTimestamp() {
-  time_t agora = time(nullptr);
-
-  struct tm dadosTempo;
-  localtime_r(&agora, &dadosTempo);
-
-  char buffer[20];
-
-  strftime(
-      buffer,
-      sizeof(buffer),
-      "%Y-%m-%d %H:%M:%S",
-      &dadosTempo
-  );
-
-  return String(buffer);
-}
-
-void inicializarNTP() {
-  Serial.println();
-  Serial.println("[NTP] Sincronizando horario...");
-
-  configTime(
-      -3 * 3600,
-      0,
-      "pool.ntp.org"
-  );
-
-  constexpr uint8_t MAX_NTP_ATTEMPTS = 20;
-
-  for (
-      uint8_t tentativa = 0;
-      tentativa < MAX_NTP_ATTEMPTS;
-      tentativa++
-  ) {
-    if (horarioSincronizado()) {
-      Serial.print("[NTP] Horario sincronizado: ");
-      Serial.println(obterTimestamp());
-      return;
-    }
-
-    delay(500);
-  }
-
-  Serial.println("[NTP] Nao foi possivel sincronizar.");
-  Serial.println("[NTP] A API utilizara o horario do servidor.");
-}
-
-// =====================================================
-// CONVERSÃO ADC
-// =====================================================
-
-float converterADC(
-    int valorRaw,
-    float valorMinimo,
-    float valorMaximo
-) {
-  const float normalizado =
-      static_cast<float>(valorRaw) / 4095.0f;
-
-  return valorMinimo +
-         normalizado * (valorMaximo - valorMinimo);
-}
-
-// =====================================================
-// AMOSTRAGEM ANALÓGICA
-// =====================================================
-
-void lerSensoresAnalogicos(
-    Estatisticas& ph,
-    Estatisticas& turbidez,
-    Estatisticas& orp
-) {
-  Acumulador acumuladorPh;
-  Acumulador acumuladorTurbidez;
-  Acumulador acumuladorOrp;
-
-  Serial.println();
-  Serial.println("[SENSOR] Amostragem analogica iniciada");
-
-  for (
-      uint8_t amostra = 1;
-      amostra <= NUM_AMOSTRAS_ANALOGICAS;
-      amostra++
-  ) {
-    const float valorPh =
-        converterADC(
-            analogRead(PH_PIN),
-            6.5f,
-            8.5f
-        );
-
-    const float valorTurbidez =
-        converterADC(
-            analogRead(TURB_PIN),
-            1.0f,
-            50.0f
-        );
-
-    const float valorOrp =
-        converterADC(
-            analogRead(ORP_PIN),
-            200.0f,
-            300.0f
-        );
-
-    adicionarAmostra(acumuladorPh, valorPh);
-    adicionarAmostra(acumuladorTurbidez, valorTurbidez);
-    adicionarAmostra(acumuladorOrp, valorOrp);
-
-    Serial.print("[AMOSTRA ");
-    Serial.print(amostra);
-    Serial.print("/");
-    Serial.print(NUM_AMOSTRAS_ANALOGICAS);
-    Serial.print("] pH=");
-    Serial.print(valorPh, 2);
-    Serial.print(" | Turbidez=");
-    Serial.print(valorTurbidez, 2);
-    Serial.print(" | ORP=");
-    Serial.println(valorOrp, 2);
-
-    if (amostra < NUM_AMOSTRAS_ANALOGICAS) {
-      delay(INTERVALO_AMOSTRAS_ANALOGICAS);
-    }
-  }
-
-  ph = calcularEstatisticas(acumuladorPh);
-  turbidez = calcularEstatisticas(acumuladorTurbidez);
-  orp = calcularEstatisticas(acumuladorOrp);
-}
-
-// =====================================================
-// AMOSTRAGEM DE TEMPERATURA
-// =====================================================
-
-Estatisticas lerTemperatura() {
-  Acumulador acumulador;
-
-  Serial.println();
-  Serial.println("[SENSOR] Amostragem de temperatura iniciada");
-
-  for (
-      uint8_t amostra = 1;
-      amostra <= NUM_AMOSTRAS_TEMPERATURA;
-      amostra++
-  ) {
-    temperatureSensor.requestTemperatures();
-
-    const float valor =
-        temperatureSensor.getTempCByIndex(0);
-
-    if (valor == DEVICE_DISCONNECTED_C) {
-      Serial.print("[TEMP ");
-      Serial.print(amostra);
-      Serial.print("/");
-      Serial.print(NUM_AMOSTRAS_TEMPERATURA);
-      Serial.println("] Sensor desconectado");
-
-      continue;
-    }
-
-    adicionarAmostra(acumulador, valor);
-
-    Serial.print("[TEMP ");
-    Serial.print(amostra);
-    Serial.print("/");
-    Serial.print(NUM_AMOSTRAS_TEMPERATURA);
-    Serial.print("] ");
-    Serial.print(valor, 2);
-    Serial.println(" C");
-
-    if (amostra < NUM_AMOSTRAS_TEMPERATURA) {
-      delay(INTERVALO_EXTRA_TEMPERATURA);
-    }
-  }
-
-  return calcularEstatisticas(acumulador);
-}
-
-// =====================================================
-// EXIBIÇÃO DOS RESULTADOS
-// =====================================================
-
-void imprimirEstatistica(
-    const char* nome,
-    const Estatisticas& dados,
-    const char* unidade = ""
-) {
-  Serial.print(nome);
-  Serial.print(" -> Media: ");
-  Serial.print(dados.media, 2);
-  Serial.print(unidade);
-
-  Serial.print(" | Min: ");
-  Serial.print(dados.minimo, 2);
-  Serial.print(unidade);
-
-  Serial.print(" | Max: ");
-  Serial.print(dados.maximo, 2);
-  Serial.print(unidade);
-
-  Serial.print(" | Desvio: ");
-  Serial.print(dados.desvioPadrao, 3);
-
-  Serial.print(" | N: ");
-  Serial.println(dados.quantidade);
-}
-
-void imprimirResultados(
-    const Estatisticas& ph,
-    const Estatisticas& turbidez,
-    const Estatisticas& temperatura,
-    const Estatisticas& orp
-) {
-  Serial.println();
-  Serial.println("===== RESULTADO CONSOLIDADO =====");
-
-  imprimirEstatistica("pH", ph);
-  imprimirEstatistica("Turbidez", turbidez, " NTU");
-  imprimirEstatistica("ORP", orp, " mV");
-  imprimirEstatistica("Temperatura", temperatura, " C");
-}
-
-// =====================================================
-// HTTPS
-// =====================================================
-
-int enviarPostComRetry(const String& payload) {
-  for (
-      uint8_t tentativa = 1;
-      tentativa <= MAX_HTTP_ATTEMPTS;
-      tentativa++
-  ) {
-    Serial.print("[HTTP] Tentativa ");
-    Serial.print(tentativa);
-    Serial.print("/");
-    Serial.println(MAX_HTTP_ATTEMPTS);
-
-    if (!conectarWiFi()) {
-      Serial.println("[HTTP] Sem Wi-Fi. Tentativa cancelada.");
-    } else {
-      WiFiClientSecure client;
-
-      client.setInsecure();
-      client.setTimeout(HTTP_TIMEOUT_MS);
-      client.setHandshakeTimeout(15);
-
-      HTTPClient http;
-
-      http.setTimeout(HTTP_TIMEOUT_MS);
-      http.setReuse(false);
-
-      if (!http.begin(client, SERVER_URL)) {
-        Serial.println("[HTTP] Falha ao iniciar conexao HTTPS.");
-
-        client.stop();
-      } else {
-        http.addHeader(
-            "Content-Type",
-            "application/json"
-        );
-
-        Serial.println("[HTTP] Enviando POST...");
-
-        const unsigned long inicio = millis();
-        const int codigo = http.POST(payload);
-        const unsigned long duracao = millis() - inicio;
-
-        Serial.print("[HTTP] Tempo: ");
-        Serial.print(duracao);
-        Serial.print(" ms | Codigo: ");
-        Serial.println(codigo);
-
-        if (codigo > 0) {
-          Serial.print("[API] ");
-          Serial.println(http.getString());
-        } else {
-          Serial.print("[HTTP] Erro: ");
-          Serial.println(http.errorToString(codigo));
-        }
-
-        http.end();
-        client.stop();
-
-        if (
-            codigo == HTTP_CODE_OK ||
-            codigo == HTTP_CODE_CREATED
-        ) {
-          Serial.println("[HTTP] Leitura registrada com sucesso.");
-
-          return codigo;
-        }
-      }
-    }
-
-    if (tentativa < MAX_HTTP_ATTEMPTS) {
-      Serial.print("[HTTP] Nova tentativa em ");
-      Serial.print(HTTP_RETRY_DELAY_MS);
-      Serial.println(" ms...");
-
-      delay(HTTP_RETRY_DELAY_MS);
-    }
-  }
-
-  Serial.println("[HTTP] Todas as tentativas falharam.");
-
-  return -1;
-}
-
-// =====================================================
-// JSON
-// =====================================================
-
-String criarPayload(
-    const Estatisticas& ph,
-    const Estatisticas& turbidez,
-    const Estatisticas& temperatura,
-    const Estatisticas& orp
-) {
-  StaticJsonDocument<256> documento;
-
-  // Por enquanto a API recebe apenas os valores médios.
-  documento["ph"] = ph.media;
-  documento["turbidez"] = turbidez.media;
-  documento["temperatura"] = temperatura.media;
-  documento["orp"] = orp.media;
-
-  if (horarioSincronizado()) {
-    documento["data_hora"] = obterTimestamp();
-  } else {
-    Serial.println("[NTP] Payload enviado sem data_hora.");
-  }
-
-  String payload;
-  serializeJson(documento, payload);
-
-  return payload;
-}
-
-// =====================================================
-// CICLO COMPLETO
-// =====================================================
-
-void executarCicloMedicao() {
-  Serial.println();
-  Serial.println("========================================");
-  Serial.println("NOVO CICLO DE MEDICAO");
-  Serial.println("========================================");
-
-  Estatisticas ph;
-  Estatisticas turbidez;
-  Estatisticas orp;
-
-  lerSensoresAnalogicos(
-      ph,
-      turbidez,
-      orp
-  );
-
-  const Estatisticas temperatura =
-      lerTemperatura();
-
-  imprimirResultados(
-      ph,
-      turbidez,
-      temperatura,
-      orp
-  );
-
-  const String payload =
-      criarPayload(
-          ph,
-          turbidez,
-          temperatura,
-          orp
-      );
-
-  Serial.println();
-  Serial.println("===== ENVIO DA LEITURA CONSOLIDADA =====");
-
-  Serial.print("[JSON] ");
-  Serial.println(payload);
-
-  const int resultado =
-      enviarPostComRetry(payload);
-
-  Serial.println();
-
-  if (resultado < 0) {
-    Serial.println("[CICLO] Concluido sem envio.");
-  } else {
-    Serial.println("[CICLO] Concluido com sucesso.");
-  }
-
-  Serial.print("[PROXIMO] Novo ciclo em ");
-  Serial.print(INTERVALO_ENTRE_CICLOS / 1000);
-  Serial.println(" segundos.");
-
-  Serial.println("========================================");
-}
-
-// =====================================================
-// SETUP
-// =====================================================
-
-void setup() {
-  Serial.begin(115200);
-  delay(1000);
-
-  Serial.println();
-  Serial.println("========================================");
-  Serial.println("MONITORAMENTO DE QUALIDADE DA AGUA");
-  Serial.println("========================================");
-
-  Serial.print("[MODO] ");
-  Serial.println(
-      MODO_DEMONSTRACAO
-          ? "DEMONSTRACAO"
-          : "OPERACAO REAL"
-  );
-
-  Serial.print("[MODO] Intervalo entre ciclos: ");
-  Serial.print(INTERVALO_ENTRE_CICLOS / 1000);
-  Serial.println(" segundos");
-
-  analogSetPinAttenuation(
-      PH_PIN,
-      ADC_11db
-  );
-
-  analogSetPinAttenuation(
-      TURB_PIN,
-      ADC_11db
-  );
-
-  analogSetPinAttenuation(
-      ORP_PIN,
-      ADC_11db
-  );
-
-  temperatureSensor.begin();
-
-  if (!conectarWiFi()) {
-    Serial.println("[SETUP] Wi-Fi indisponivel.");
-  }
-
-  inicializarNTP();
-
-  ultimoCicloConcluido = millis();
-
-  Serial.println();
-  Serial.println("[SETUP] Sistema pronto.");
-  Serial.print("[SETUP] Primeiro ciclo em ");
-  Serial.print(INTERVALO_ENTRE_CICLOS / 1000);
-  Serial.println(" segundos.");
-}
-
-// =====================================================
-// LOOP
-// =====================================================
-
-void loop() {
-  // Reconecta apenas quando realmente há perda de Wi-Fi.
-  if (WiFi.status() != WL_CONNECTED) {
-    conectarWiFi();
-  }
-
-  const bool horaDoProximoCiclo =
-      millis() - ultimoCicloConcluido >=
-      INTERVALO_ENTRE_CICLOS;
-
-  if (!horaDoProximoCiclo) {
-    delay(100);
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("\n[WiFi] CONECTADO!");
+    Serial.print("[WiFi] IP local: ");
+    Serial.println(WiFi.localIP());
     return;
   }
 
-  executarCicloMedicao();
+  Serial.println("\n[WiFi] ERRO ao conectar");
+}
 
-  // O intervalo começa somente após o ciclo terminar.
-  ultimoCicloConcluido = millis();
+String getTimestamp() {
+time_t nowSec = time(nullptr);
+struct tm timeinfo;
+localtime_r(&nowSec, &timeinfo);
+char buf[20];
+strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &timeinfo);
+return String(buf);
+}
+
+float mapAnalogToRange(int pin, float minVal, float maxVal) {
+int raw = analogRead(pin);
+float normalized = (float)raw / 4095.0;
+return minVal + normalized * (maxVal - minVal);
+}
+
+void lerMediasAnalogicas(float& ph, float& turbidez, float& orp) {
+  float somaPh = 0.0;
+  float somaTurbidez = 0.0;
+  float somaOrp = 0.0;
+
+  Serial.println("\n[SENSOR] Iniciando 10 amostras...");
+
+  for (int i = 0; i < NUM_AMOSTRAS; i++) {
+    float leituraPh = mapAnalogToRange(PH_PIN, 6.5, 8.5);
+    float leituraTurbidez = mapAnalogToRange(TURB_PIN, 1.0, 50.0);
+    float leituraOrp = mapAnalogToRange(ORP_PIN, 200.0, 300.0);
+
+    somaPh += leituraPh;
+    somaTurbidez += leituraTurbidez;
+    somaOrp += leituraOrp;
+
+    Serial.print("[SENSOR] Amostra ");
+    Serial.print(i + 1);
+    Serial.print(": pH=");
+    Serial.print(leituraPh, 2);
+    Serial.print(" | Turbidez=");
+    Serial.print(leituraTurbidez, 2);
+    Serial.print(" | ORP=");
+    Serial.println(leituraOrp, 2);
+
+    if (i < NUM_AMOSTRAS - 1) {
+        delay(TEMPO_ENTRE_AMOSTRAS);
+    }
+  }
+
+  ph = somaPh / NUM_AMOSTRAS;
+  turbidez = somaTurbidez / NUM_AMOSTRAS;
+  orp = somaOrp / NUM_AMOSTRAS;
+}
+
+float lerMediaTemperatura() {
+  const int NUM_AMOSTRAS_TEMP = 3;
+  float somaTemp = 0.0;
+  int amostrasValidas = 0;
+
+  Serial.println("\n[SENSOR] Iniciando 3 amostras de temperatura...");
+
+  for (int i = 0; i < NUM_AMOSTRAS_TEMP; i++) {
+    sensors.requestTemperatures();
+    float temp = sensors.getTempCByIndex(0);
+
+    if (temp == DEVICE_DISCONNECTED_C) {
+      Serial.print("[SENSOR] Amostra ");
+      Serial.print(i + 1);
+      Serial.println(": ERRO - DS18B20 desconectado");
+      continue;
+    }
+
+    somaTemp += temp;
+    amostrasValidas++;
+
+    Serial.print("[SENSOR] Amostra ");
+    Serial.print(i + 1);
+    Serial.print(": Temperatura=");
+    Serial.print(temp, 2);
+    Serial.println(" C");
+  }
+
+  if (amostrasValidas == 0) {
+    return 0.0;
+  }
+
+  return somaTemp / amostrasValidas;
+}
+
+int enviarPostComRetry(const String& payload) {
+const int maxAttempts = 3;
+for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+Serial.print("[HTTP] Tentativa ");
+Serial.print(attempt);
+Serial.print("/" );
+Serial.println(maxAttempts);
+
+WiFiClientSecure client;
+client.setInsecure();
+HTTPClient http;
+
+Serial.println("[HTTP] Iniciando conexao HTTPS...");
+if (!http.begin(client, serverUrl)) {
+Serial.println("[HTTP] ✗ ERRO ao iniciar conexao HTTPS!");
+http.end();
+client.stop();
+} else {
+http.addHeader("Content-Type", "application/json");
+
+Serial.println("[HTTP] Enviando POST...");
+int httpCode = http.POST(payload);
+Serial.print("[HTTP] Codigo HTTP: ");
+Serial.println(httpCode);
+
+String response = http.getString();
+Serial.print("[RESPOSTA] ");
+Serial.println(response);
+
+if (httpCode == 200 || httpCode == 201) {
+Serial.println("[HTTP] ✓ SUCESSO! Leitura registrada.");
+http.end();
+client.stop();
+return httpCode;
+}
+
+if (httpCode < 0) {
+Serial.print("[HTTP] ERRO DE CONEXAO: ");
+Serial.println(http.errorToString(httpCode));
+} else {
+Serial.print("[HTTP] ✗ FALHA! Esperado 200/201, recebido: ");
+Serial.println(httpCode);
+}
+
+http.end();
+client.stop();
+}
+
+if (attempt < maxAttempts) {
+Serial.println("[HTTP] Aguardando 2000 ms antes da proxima tentativa...");
+delay(2000);
+}
+}
+
+Serial.println("[HTTP] Todas as tentativas falharam. Leitura descartada nesta versao.");
+return -1;
+}
+
+void sendReading() {
+// Verificar se a hora foi sincronizada
+time_t nowSec = time(nullptr);
+  if (nowSec < 1000000000) {
+    Serial.println("[SENSOR] ERRO: Hora nao sincronizada. Pulando envio.");
+    return;
+  }
+
+// Leitura dos sensores
+float temperature = lerMediaTemperatura();
+float ph, turbidez, orp;
+lerMediasAnalogicas(ph, turbidez, orp);
+
+Serial.println("\n[SENSOR] ===== MÉDIAS =====");
+Serial.print("[SENSOR] pH médio: ");
+Serial.println(ph, 2);
+Serial.print("[SENSOR] Turbidez média: ");
+Serial.println(turbidez, 2);
+Serial.print("[SENSOR] ORP médio: ");
+Serial.println(orp, 2);
+Serial.print("[SENSOR] Temperatura média: ");
+Serial.print(temperature, 2);
+Serial.println(" C");
+
+String timestamp = getTimestamp();
+
+// Criar JSON com ou sem data_hora dependendo da sincronizacao NTP
+StaticJsonDocument<256> doc;
+doc["ph"] = ph;
+doc["turbidez"] = turbidez;
+doc["temperatura"] = temperature;
+doc["orp"] = orp;
+doc["data_hora"] = timestamp;
+
+String payload;
+serializeJson(doc, payload);
+
+// ===== DEBUG: Imprimir dados =====
+Serial.println("\n[HTTP] ========== ENVIANDO LEITURA ==========");
+Serial.print("[URL] ");
+Serial.println(serverUrl);
+
+Serial.print("[JSON] ");
+Serial.println(payload);
+
+if (WiFi.status() != WL_CONNECTED) {
+Serial.println("[HTTP] Wi-Fi desconectado antes do envio. Tentando reconectar...");
+connectWiFi();
+if (WiFi.status() != WL_CONNECTED) {
+Serial.println("[HTTP] Nao foi possivel reconectar. Pulando envio.");
+Serial.println("[HTTP] ========== FIM DO ENVIO ==========");
+return;
+}
+}
+
+int result = enviarPostComRetry(payload);
+if (result < 0) {
+Serial.println("[HTTP] ERRO: falha ao enviar mesmo apos tentativas.");
+}
+
+Serial.println("[HTTP] ========== FIM DO ENVIO ==========");
+}
+
+void setup() {
+Serial.begin(115200);
+delay(1000);
+Serial.flush();
+
+Serial.println("\n\n================================");
+Serial.println("BOOT ESP32 WOKWI");
+Serial.println("================================\n");
+
+Serial.println("[SETUP] Inicializando GPIO e sensores...");
+analogSetPinAttenuation(PH_PIN, ADC_11db);
+analogSetPinAttenuation(TURB_PIN, ADC_11db);
+analogSetPinAttenuation(ORP_PIN, ADC_11db);
+
+sensors.begin();
+Serial.println("[SETUP] Sensores inicializados.\n");
+
+Serial.println("[SETUP] Conectando ao Wi-Fi...");
+connectWiFi();
+
+Serial.println("\n[SETUP] Sincronizando horario via NTP...");
+configTime(-3 * 3600, 0, "pool.ntp.org");
+time_t nowSec = time(nullptr);
+int attempts = 0;
+while (nowSec < 1000000000 && attempts < 20) {
+delay(500);
+nowSec = time(nullptr);
+attempts++;
+}
+
+Serial.println("[SETUP] Horario inicializado: " + getTimestamp());
+Serial.println("[SETUP] Setup completo! Iniciando loop...\n");
+}
+
+void loop() {
+static unsigned long lastDebugTime = 0;
+
+// Debug a cada 10 segundos
+if (millis() - lastDebugTime >= 10000) {
+lastDebugTime = millis();
+Serial.print("[LOOP] Rodando... ");
+Serial.print(millis() / 1000);
+Serial.print("s | WiFi: ");
+Serial.println(WiFi.status() == WL_CONNECTED ? "OK" : "ERRO");
+}
+
+// Reconectar Wi-Fi se necessário
+if (WiFi.status() != WL_CONNECTED) {
+Serial.println("[LOOP] Wi-Fi desconectado, tentando reconectar...");
+connectWiFi();
+}
+
+// Enviar leitura a cada SEND_INTERVAL
+if (millis() - lastSend >= SEND_INTERVAL) {
+if (WiFi.status() == WL_CONNECTED) {
+sendReading();
+} else {
+Serial.println("[LOOP] Nao ha conexao Wi-Fi. Pulando envio.");
+}
+lastSend = millis();
+}
+
+delay(100);
 }
