@@ -1,5 +1,5 @@
 // Altere esta URL para o endpoint real da sua API
-const API_URL = "http://localhost:5000/leituras";
+const API_URL = "https://api-monitoramento-agua.onrender.com/leituras";
 
 // Intervalo de atualização em milissegundos
 const INTERVALO_ATUALIZACAO = 2000;
