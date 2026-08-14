@@ -1,6 +1,6 @@
 const API_URL = "https://api-monitoramento-agua.onrender.com/leituras";
 
-const INTERVALO_ATUALIZACAO = 10000;
+const INTERVALO_ATUALIZACAO = 37000; // 37 segundos
 
 let historico = [];
 
