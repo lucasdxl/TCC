@@ -1,9 +1,10 @@
 const API_URL = "https://api-monitoramento-agua.onrender.com/leituras";
 
-const INTERVALO_ATUALIZACAO = 2000; // 2 segundos
+const INTERVALO_ATUALIZACAO = 5000; // 5 segundos
 
 let historico = [];
 let ultimoIdProcessado = null;
+let primeiraConexao = true;
 
 
 /*
@@ -13,7 +14,9 @@ BUSCA OS DADOS DA API
 */
 async function buscarDadosDaApi() {
     try {
-        alterarStatusConexao("Conectando...", "conectando");
+        if(primeiraConexao) {
+            alterarStatusConexao("Conectando...", "conectando");
+        }
         limparErro();
         const resposta = await fetch(API_URL, {
             method: "GET",
@@ -91,16 +94,12 @@ async function buscarDadosDaApi() {
             leitura
         );
 
-        /*
-        Atualiza a interface
-        */
-        atualizarCards(leitura);
-        verificarAlarmes(leitura);
-        adicionarNoHistorico(leitura);
         alterarStatusConexao(
             "Online",
             "online"
         );
+
+        primeiraConexao = false;
 
         document.getElementById(
             "statusLeitura"
